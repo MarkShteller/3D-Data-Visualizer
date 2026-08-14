@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using PointCloud.App.UI.Platform;
 using PointCloud.Core.Diagnostics;
+using PointCloud.Core.Sources;
+using PointCloud.Formats.Ply;
+using PointCloud.Formats.Vrs;
 using UnityEngine;
 
 namespace PointCloud.App.Bootstrap
@@ -20,9 +24,35 @@ namespace PointCloud.App.Bootstrap
 
         public LoadLog Log { get; }
 
+        /// <summary>Format factories. An instance, not a static, so it cannot accumulate across play sessions.</summary>
+        public SourceRegistry Registry { get; }
+
+        public PointCloudLoader Loader { get; }
+
+        public RecentFiles Recent { get; }
+
+        public IFileDialogService FileDialog { get; }
+
         public AppServices()
         {
             Log = new LoadLog();
+
+            Registry = new SourceRegistry();
+            Registry.Register(new PlySourceFactory(Log));
+            // Registered even though it only throws: a .vrs file then resolves, opens through
+            // the normal path, and fails with "not supported yet" instead of "unknown format".
+            // That exercises the whole discovery and error path now, and makes phase 2 a
+            // single class swap.
+            Registry.Register(new VrsSourceFactory());
+
+            Loader = new PointCloudLoader(Registry, Log);
+            Recent = new RecentFiles();
+
+            var dialog = new Win32FileDialog();
+            FileDialog = dialog.IsAvailable ? dialog : new NullFileDialogService();
+
+            if (!FileDialog.IsAvailable)
+                Log.Warning("App", "No native file dialog on this platform — use the path field to open files.");
         }
 
         /// <summary>

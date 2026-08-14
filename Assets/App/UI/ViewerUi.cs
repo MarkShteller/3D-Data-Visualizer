@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using PointCloud.Core.Data;
+using PointCloud.Core.Sources;
 using PointCloud.Core.Synthetic;
 using PointCloud.Rendering;
 using UnityEngine;
@@ -33,7 +34,11 @@ namespace PointCloud.App.UI
         Label           _colorModeHint;
         Slider          _pixelSize, _opacity;
         Toggle          _zoomToCursor;
-        Button          _loadSynthetic;
+        Button          _loadSynthetic, _openFile, _clearClouds, _cancelLoad;
+        DropdownField   _recentFiles;
+        TextField       _pathField;
+        Label           _loadStatus;
+        ProgressBar     _loadProgress;
         Label           _statPoints, _statDrawn, _statDraws, _statVram, _statFrame;
 
         readonly List<GpuPointCloud> _cloudItems = new();
@@ -44,6 +49,18 @@ namespace PointCloud.App.UI
 
         /// <summary>Raised when the user asks for a synthetic cloud: (shape, point count).</summary>
         public event Action<SyntheticShape, int> SyntheticCloudRequested;
+
+        /// <summary>Raised when the user picks or types a file to open.</summary>
+        public event Action<string[]> FilesRequested;
+
+        /// <summary>Raised when the user asks to show the open dialog.</summary>
+        public event Action OpenDialogRequested;
+
+        /// <summary>Raised when the user cancels an in-flight load.</summary>
+        public event Action LoadCancelRequested;
+
+        /// <summary>Raised when the user asks to remove every loaded cloud.</summary>
+        public event Action ClearRequested;
 
         /// <summary>Raised when the up-axis convention changes and clouds must be re-oriented.</summary>
         public event Action<SourceUpAxis> UpAxisChanged;
@@ -89,9 +106,109 @@ namespace PointCloud.App.UI
             _syntheticCount = _root.Q<DropdownField>("synthetic-count");
             _loadSynthetic  = _root.Q<Button>("load-synthetic");
 
+            _openFile     = _root.Q<Button>("open-file");
+            _clearClouds  = _root.Q<Button>("clear-clouds");
+            _cancelLoad   = _root.Q<Button>("cancel-load");
+            _recentFiles  = _root.Q<DropdownField>("recent-files");
+            _pathField    = _root.Q<TextField>("path-field");
+            _loadStatus   = _root.Q<Label>("load-status");
+            _loadProgress = _root.Q<ProgressBar>("load-progress");
+
             SetupCloudList();
             SetupDropdowns();
             SetupSliders();
+            SetupOpenControls();
+        }
+
+        void SetupOpenControls()
+        {
+            if (_openFile != null) _openFile.clicked += () => OpenDialogRequested?.Invoke();
+            if (_clearClouds != null) _clearClouds.clicked += () => ClearRequested?.Invoke();
+            if (_cancelLoad != null) _cancelLoad.clicked += () => LoadCancelRequested?.Invoke();
+
+            // A typed or pasted path is the fallback when no native dialog exists, and the
+            // fastest route when the user already has the path on their clipboard.
+            if (_pathField != null)
+            {
+                _pathField.RegisterCallback<KeyDownEvent>(evt =>
+                {
+                    if (evt.keyCode is not (KeyCode.Return or KeyCode.KeypadEnter)) return;
+
+                    var path = _pathField.value?.Trim().Trim('"');
+                    if (!string.IsNullOrEmpty(path)) FilesRequested?.Invoke(new[] { path });
+                    evt.StopPropagation();
+                });
+            }
+
+            if (_recentFiles != null)
+            {
+                _recentFiles.RegisterValueChangedCallback(_ =>
+                {
+                    if (_suppressCallbacks) return;
+                    int index = _recentFiles.index;
+                    if (index >= 0 && index < _recentPaths.Count)
+                        FilesRequested?.Invoke(new[] { _recentPaths[index] });
+                });
+            }
+
+            ShowProgress(null);
+        }
+
+        readonly List<string> _recentPaths = new();
+
+        /// <summary>Refresh the recent list. Full paths are the tooltip; the label is the file name.</summary>
+        public void SetRecentFiles(IReadOnlyList<string> paths)
+        {
+            _recentPaths.Clear();
+            if (paths != null) _recentPaths.AddRange(paths);
+
+            if (_recentFiles == null) return;
+
+            _suppressCallbacks = true;
+            _recentFiles.choices = _recentPaths.Select(System.IO.Path.GetFileName).ToList();
+            _recentFiles.index = -1;
+            _recentFiles.SetEnabled(_recentPaths.Count > 0);
+            _suppressCallbacks = false;
+        }
+
+        /// <summary>Show load progress, or pass null to hide the progress controls entirely.</summary>
+        public void ShowProgress(LoadProgress? progress)
+        {
+            bool active = progress.HasValue &&
+                          progress.Value.Phase is not (LoadPhase.Complete or LoadPhase.Failed);
+
+            if (_loadProgress != null)
+            {
+                _loadProgress.style.display = active ? DisplayStyle.Flex : DisplayStyle.None;
+                if (active)
+                {
+                    float fraction = progress.Value.Fraction;
+                    // A phase with no measurable total still shows the phase name rather than
+                    // a bar frozen at zero, which reads as a hang.
+                    _loadProgress.value = fraction >= 0f ? fraction : 0f;
+                    _loadProgress.title = fraction >= 0f
+                        ? $"{progress.Value.Phase} {fraction * 100f:F0}%"
+                        : progress.Value.Phase.ToString();
+                }
+            }
+
+            if (_cancelLoad != null)
+                _cancelLoad.style.display = active ? DisplayStyle.Flex : DisplayStyle.None;
+
+            if (_openFile != null) _openFile.SetEnabled(!active);
+        }
+
+        /// <summary>One-line status under the open controls. Errors are styled as a callout.</summary>
+        public void SetStatus(string message, bool isError = false)
+        {
+            if (_loadStatus == null) return;
+
+            _loadStatus.text = message ?? string.Empty;
+            _loadStatus.style.display = string.IsNullOrEmpty(message) ? DisplayStyle.None : DisplayStyle.Flex;
+
+            _loadStatus.RemoveFromClassList("pc-hint");
+            _loadStatus.RemoveFromClassList("pc-warning");
+            _loadStatus.AddToClassList(isError ? "pc-warning" : "pc-hint");
         }
 
         void SetupCloudList()

@@ -81,7 +81,10 @@ namespace PointCloud.Core.Spatial
             var timer = System.Diagnostics.Stopwatch.StartNew();
 
             // 1. AABB of the whole cloud.
-            var boundsResult = new NativeArray<float3>(2, Allocator.TempJob);
+            // Every scratch allocation here is Persistent rather than TempJob. Chunk
+            // building runs on the loader's background thread, where TempJob's 4-frame
+            // lifetime assertion does not hold. All are disposed within this call.
+            var boundsResult = new NativeArray<float3>(2, Allocator.Persistent);
             new ComputeBoundsJob { Positions = positions, Result = boundsResult }.Schedule().Complete();
 
             float3 boundsMin = boundsResult[0];
@@ -90,7 +93,7 @@ namespace PointCloud.Core.Spatial
             stats.BoundsMs = timer.Elapsed.TotalMilliseconds; timer.Restart();
 
             // 2. Morton key per point, packed with the point index.
-            var keys = new NativeArray<ulong>(count, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            var keys = new NativeArray<ulong>(count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             new MortonKeyJob
             {
                 Positions  = positions,
@@ -109,7 +112,7 @@ namespace PointCloud.Core.Spatial
             // 99.6% of the cost — while every job here compiled and ran in single-digit
             // milliseconds. Radix is also O(n) rather than O(n log n) and needs only the
             // 30-bit Morton code, not the whole key.
-            var scratch = new NativeArray<ulong>(count, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            var scratch = new NativeArray<ulong>(count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             new RadixSortMortonJob { Keys = keys, Scratch = scratch }.Schedule().Complete();
             scratch.Dispose();
             stats.SortMs = timer.Elapsed.TotalMilliseconds; timer.Restart();
@@ -122,7 +125,7 @@ namespace PointCloud.Core.Spatial
             int chunkCount = (count + chunkSize - 1) / chunkSize;
             var chunks = new NativeArray<PointChunk>(chunkCount, allocator, NativeArrayOptions.UninitializedMemory);
 
-            var permutation = new NativeArray<int>(count, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            var permutation = new NativeArray<int>(count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             var chunkHandle = new BuildChunksJob
             {
                 Keys        = keys,
@@ -139,7 +142,7 @@ namespace PointCloud.Core.Spatial
             stats.ChunksMs = timer.Elapsed.TotalMilliseconds; timer.Restart();
 
             // 5. Gather every stream through the permutation.
-            var gatherHandles = new NativeList<JobHandle>(PointAttributeInfo.SlotCount, Allocator.Temp);
+            var gatherHandles = new NativeList<JobHandle>(PointAttributeInfo.SlotCount, Allocator.Persistent);
             var replacements  = new AttributeStream[PointAttributeInfo.SlotCount];
 
             var streams = data.StreamsInternal;

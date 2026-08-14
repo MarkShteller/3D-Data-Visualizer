@@ -33,6 +33,32 @@ namespace PointCloud.App.Bootstrap
 
             // Mirror the banner to the Unity console so it shows up in player logs too.
             Debug.Log(Services.Log.Snapshot()[0].Message);
+
+            WarmUpJobs();
+        }
+
+        /// <summary>
+        /// Compile the Burst jobs here, on the main thread, before any file can be loaded.
+        ///
+        /// A job first invoked from a plain background thread does not get Burst-compiled —
+        /// it silently runs managed and stays that way. File loading runs on Task.Run, so
+        /// without this the first load of the session would compile nothing and every load
+        /// afterwards would take roughly 25x longer. Costs a few milliseconds here.
+        /// </summary>
+        void WarmUpJobs()
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                Core.JobWarmup.Run();
+                Formats.FormatJobWarmup.Run();
+                Services.Log.Info("App", $"Burst warm-up completed in {stopwatch.ElapsedMilliseconds} ms");
+            }
+            catch (Exception e)
+            {
+                // A failed warm-up costs speed, not correctness — never block startup for it.
+                Services.Log.Warning("App", $"Burst warm-up failed ({e.Message}); loads will be slower.");
+            }
         }
 
         void OnDestroy()   => Shutdown();

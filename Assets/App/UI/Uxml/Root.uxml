@@ -15,7 +15,18 @@
         </ui:VisualElement>
 
         <ui:VisualElement name="dock-left" class="pc-dock pc-dock--left">
-            <ui:Label class="pc-section-title pc-section-title--first" text="CLOUDS" />
+            <ui:Label class="pc-section-title pc-section-title--first" text="OPEN" />
+            <ui:VisualElement class="pc-row">
+                <ui:Button name="open-file" text="Open File…" style="flex-grow: 1;" />
+                <ui:Button name="clear-clouds" text="Clear" style="width: 62px;" />
+            </ui:VisualElement>
+            <ui:DropdownField name="recent-files" class="pc-field" label="Recent" />
+            <ui:TextField name="path-field" class="pc-field" label="Path" />
+            <ui:Label name="load-status" class="pc-hint" text="" />
+            <ui:ProgressBar name="load-progress" low-value="0" high-value="1" />
+            <ui:Button name="cancel-load" text="Cancel" />
+
+            <ui:Label class="pc-section-title" text="CLOUDS" />
             <ui:ListView name="cloud-list" class="pc-cloud-list" />
 
             <ui:VisualElement class="pc-row">

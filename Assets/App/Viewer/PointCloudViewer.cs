@@ -1,9 +1,14 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using PointCloud.App.Bootstrap;
 using PointCloud.App.CameraControl;
 using PointCloud.App.Input;
 using PointCloud.App.UI;
 using PointCloud.Core.Data;
+using PointCloud.Core.Sources;
 using PointCloud.Core.Synthetic;
 using PointCloud.Rendering;
 using Unity.Collections;
@@ -13,7 +18,7 @@ using UnityEngine.UIElements;
 namespace PointCloud.App.Viewer
 {
     /// <summary>
-    /// Orchestrates one viewport: renderer, camera, input and UI.
+    /// Orchestrates one viewport: renderer, camera, input, UI and file loading.
     ///
     /// The only MonoBehaviour in the runtime path. Everything it drives is a plain class,
     /// so the pieces stay testable and lifetimes stay explicit — which matters here because
@@ -38,14 +43,19 @@ namespace PointCloud.App.Viewer
         ViewerUi            _ui;
         AppServices         _services;
 
-        readonly List<PointCloudData> _loaded = new();
+        /// <summary>Frames own their point data; disposing a frame frees it at refcount zero.</summary>
+        readonly List<PointCloudFrame> _frames = new();
         readonly List<Bounds> _boundsScratch = new();
+
+        CancellationTokenSource _loadCancellation;
+        bool _loading;
 
         SourceUpAxis _upAxis = SourceUpAxis.ZUp;
         bool _pointerStartedOverUi;
 
         public PointCloudRenderer Renderer => _renderer;
         public OrbitFlyController Controller => _controller;
+        public bool IsLoading => _loading;
 
         void Awake()
         {
@@ -75,12 +85,146 @@ namespace PointCloud.App.Viewer
                 _ui.SyntheticCloudRequested += (shape, count) => LoadSynthetic(shape, count, _scale);
                 _ui.UpAxisChanged           += ApplyUpAxis;
                 _ui.ZoomToCursorChanged     += enabled => _controller.ZoomToCursor = enabled;
+                _ui.OpenDialogRequested     += ShowOpenDialog;
+                _ui.FilesRequested          += paths => _ = OpenFilesAsync(paths);
+                _ui.LoadCancelRequested     += CancelLoad;
+                _ui.ClearRequested          += ClearClouds;
                 _services?.Own(_ui);
+
+                RefreshRecentFiles();
             }
 
-            if (_generateOnStart)
+            // Files named on the command line, so `viz.exe cloud.ply` and "Open with…" work.
+            var commandLineFiles = CommandLineFiles();
+            if (commandLineFiles.Length > 0)
+                _ = OpenFilesAsync(commandLineFiles);
+            else if (_generateOnStart)
                 LoadSynthetic(_shape, _pointCount, _scale);
         }
+
+        // --- loading -------------------------------------------------------------
+
+        void ShowOpenDialog()
+        {
+            var dialog = _services?.FileDialog;
+            if (dialog == null || !dialog.IsAvailable)
+            {
+                _ui?.SetStatus("No file dialog on this platform — paste a path into the Path field.", true);
+                return;
+            }
+
+            var extensions = _services.Registry.SupportedExtensions;
+            var paths = dialog.OpenFiles("Open point cloud", extensions,
+                                         allowMultiple: true, _services.Recent.LastDirectory);
+
+            if (paths.Length > 0) _ = OpenFilesAsync(paths);
+        }
+
+        /// <summary>
+        /// Load one or more files, adding them to the scene rather than replacing what is
+        /// already there — overlaying a prediction on its ground truth is the core comparison
+        /// this tool exists for.
+        /// </summary>
+        public async Task OpenFilesAsync(string[] paths)
+        {
+            if (paths == null || paths.Length == 0 || _loading) return;
+
+            _loading = true;
+            _loadCancellation?.Dispose();
+            _loadCancellation = new CancellationTokenSource();
+
+            try
+            {
+                for (int i = 0; i < paths.Length; i++)
+                {
+                    if (_loadCancellation.IsCancellationRequested) break;
+
+                    string path = paths[i];
+                    string prefix = paths.Length > 1 ? $"[{i + 1}/{paths.Length}] " : "";
+                    _ui?.SetStatus($"{prefix}Loading {Path.GetFileName(path)}…");
+
+                    // Progress<T> captures the current synchronisation context, so these
+                    // callbacks arrive on the main thread and can touch the UI directly.
+                    var progress = new Progress<LoadProgress>(report =>
+                    {
+                        _ui?.ShowProgress(report);
+                        _ui?.SetStatus($"{prefix}{Path.GetFileName(path)} — {report}");
+                    });
+
+                    var result = await _services.Loader
+                        .LoadAsync(path, FrameRequest.Default, progress, _loadCancellation.Token)
+                        .ConfigureAwait(true);   // resume on the main thread; GPU upload needs it
+
+                    if (result.Cancelled)
+                    {
+                        _ui?.SetStatus("Load cancelled.");
+                        break;
+                    }
+
+                    if (!result.Succeeded)
+                    {
+                        _ui?.SetStatus(result.UserMessage, true);
+                        continue;
+                    }
+
+                    AddFrame(result.Frame);
+                    _services.Recent.Add(path);
+                    _ui?.SetStatus($"{Path.GetFileName(path)} — {result.Frame.Data.Descriptor.PointCount:N0} points " +
+                                   $"in {result.ElapsedMs:F0} ms");
+                }
+            }
+            catch (Exception e)
+            {
+                _ui?.SetStatus($"Load failed: {e.Message}", true);
+                Log($"Load failed: {e}");
+            }
+            finally
+            {
+                _loading = false;
+                _ui?.ShowProgress(null);
+                RefreshRecentFiles();
+                FrameAll();
+            }
+        }
+
+        void CancelLoad() => _loadCancellation?.Cancel();
+
+        void RefreshRecentFiles()
+        {
+            if (_services == null) return;
+            _services.Recent.PruneMissing();
+            _ui?.SetRecentFiles(_services.Recent.Paths);
+        }
+
+        /// <summary>
+        /// Point-cloud files named on the command line.
+        ///
+        /// Matched by supported extension, not merely by "this path exists". Command lines
+        /// are full of paths that belong to a preceding flag — Unity's own -logFile and
+        /// -testResults among them — and accepting any existing file means the app opens a
+        /// log instead of a cloud.
+        /// </summary>
+        string[] CommandLineFiles()
+        {
+            var extensions = _services?.Registry?.SupportedExtensions;
+            if (extensions == null || extensions.Length == 0) return Array.Empty<string>();
+
+            var files = new List<string>();
+            foreach (var argument in Environment.GetCommandLineArgs())
+            {
+                if (string.IsNullOrWhiteSpace(argument) || argument.StartsWith("-")) continue;
+
+                var extension = Path.GetExtension(argument);
+                bool supported = false;
+                foreach (var candidate in extensions)
+                    if (string.Equals(extension, candidate, StringComparison.OrdinalIgnoreCase)) { supported = true; break; }
+
+                if (supported && File.Exists(argument)) files.Add(argument);
+            }
+            return files.ToArray();
+        }
+
+        // --- clouds --------------------------------------------------------------
 
         public GpuPointCloud LoadSynthetic(SyntheticShape shape, int pointCount, float scale = 10f)
         {
@@ -94,30 +238,45 @@ namespace PointCloud.App.Viewer
             Log($"Generated {data.Descriptor} in {stopwatch.ElapsedMilliseconds} ms " +
                 $"({data.Chunks.Length} chunks, {data.Descriptor.EstimatedBytes / (1024 * 1024)} MB)");
 
-            return Adopt(data);
+            // Replace on synthetic generation: it is a scratch cloud, not something you
+            // overlay a real scan against.
+            ClearClouds();
+            return AddFrame(new PointCloudFrame(data));
         }
 
-        /// <summary>Take ownership of loaded data, upload it, and frame it.</summary>
-        public GpuPointCloud Adopt(PointCloudData data)
+        /// <summary>Take ownership of a loaded frame, upload it, and make it visible.</summary>
+        public GpuPointCloud AddFrame(PointCloudFrame frame)
         {
-            ClearClouds();
-
-            _loaded.Add(data);
-            var cloud = _renderer.Add(data);
+            _frames.Add(frame);
+            var cloud = _renderer.Add(frame.Data);
 
             // Applied here rather than in Rendering, which must never reference App — that
             // dependency direction is what keeps the renderer reusable and a VRS source a
             // drop-in later.
             cloud.Display.FlatColor = UiPalette.FlatPointColor;
 
-            if (!data.Descriptor.OrientationIsAuthoritative)
+            if (!frame.Data.Descriptor.OrientationIsAuthoritative)
                 ApplyUpAxisTo(cloud, _upAxis);
 
             _ui?.RefreshCloudList();
-            _controller.Frame(_camera, cloud.WorldBounds, animate: false);
-
             return cloud;
         }
+
+        public void ClearClouds()
+        {
+            _renderer?.Clear();
+            foreach (var frame in _frames) frame.Dispose();
+            _frames.Clear();
+            _ui?.RefreshCloudList();
+        }
+
+        void FrameAll()
+        {
+            if (_renderer.Clouds.Count > 0 && TryGetVisibleBounds(out var bounds))
+                _controller.Frame(_camera, bounds, animate: false);
+        }
+
+        // --- per-frame -----------------------------------------------------------
 
         void LateUpdate()
         {
@@ -127,7 +286,6 @@ namespace PointCloud.App.Viewer
             HandleHotkeys();
 
             _controller.Update(_camera, _input, Time.unscaledDeltaTime, ProbeDepth);
-
             FitClipPlanes();
 
             _renderer.Render(_camera);
@@ -224,8 +382,7 @@ namespace PointCloud.App.Viewer
                 ApplyUpAxisTo(cloud, upAxis);
             }
 
-            if (TryGetVisibleBounds(out var bounds))
-                _controller.Frame(_camera, bounds);
+            FrameAll();
         }
 
         static void ApplyUpAxisTo(GpuPointCloud cloud, SourceUpAxis upAxis)
@@ -241,9 +398,10 @@ namespace PointCloud.App.Viewer
         /// </summary>
         void ReleaseUploadedCpuStreams()
         {
-            for (int i = 0; i < _loaded.Count; i++)
+            foreach (var frame in _frames)
             {
-                var data = _loaded[i];
+                if (!frame.IsAlive) continue;
+                var data = frame.Data;
                 if (data.Retention == CpuRetention.PositionsOnly) continue;
 
                 var cloud = FindCloudFor(data);
@@ -262,15 +420,12 @@ namespace PointCloud.App.Viewer
             return null;
         }
 
-        void ClearClouds()
-        {
-            _renderer.Clear();
-            foreach (var data in _loaded) data.Dispose();
-            _loaded.Clear();
-        }
-
         void OnDestroy()
         {
+            _loadCancellation?.Cancel();
+            _loadCancellation?.Dispose();
+            _loadCancellation = null;
+
             if (_renderer != null) ClearClouds();
 
             // AppServices owns the renderer and UI when one exists; dispose directly only
