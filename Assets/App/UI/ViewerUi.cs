@@ -248,7 +248,9 @@ namespace PointCloud.App.UI
             if (_cloudList == null) return;
 
             _cloudList.itemsSource = _cloudItems;
-            _cloudList.fixedItemHeight = 34f;
+            // Two stacked lines plus padding. Too small and the second line is clipped off
+            // the bottom of every row.
+            _cloudList.fixedItemHeight = 42f;
             _cloudList.selectionType = SelectionType.Single;
 
             _cloudList.makeItem = () =>
@@ -261,7 +263,11 @@ namespace PointCloud.App.UI
 
                 var visible = new Toggle { name = "visible" };
 
-                var text = new VisualElement { name = "text", style = { flexGrow = 1 } };
+                // Styled by class rather than inline: the ellipsis behaviour needs
+                // min-width, overflow and text-overflow to agree, and that belongs in USS.
+                var text = new VisualElement { name = "text" };
+                text.AddToClassList("pc-cloud-item__text");
+
                 var name = new Label { name = "name" };
                 name.AddToClassList("pc-cloud-item__name");
                 var meta = new Label { name = "meta" };
@@ -280,14 +286,22 @@ namespace PointCloud.App.UI
                 if (index < 0 || index >= _cloudItems.Count) return;
                 var cloud = _cloudItems[index];
 
-                element.Q<Label>("name").text = cloud.Descriptor.Name;
+                var descriptor = cloud.Descriptor;
+                element.Q<Label>("name").text = descriptor.Name;
 
                 // Flag a moved cloud: a silently-shifted position would be badly misleading
                 // when the whole purpose of the view is comparing two clouds' geometry.
                 string placement = cloud.IsTranslated ? " · zeroed" : "";
                 element.Q<Label>("meta").text =
-                    $"{FormatCount(cloud.Descriptor.PointCount)} · {cloud.Descriptor.FormatId} · " +
+                    $"{FormatCount(descriptor.PointCount)} · {descriptor.FormatId} · " +
                     $"{cloud.VramBytes / (1024 * 1024)} MB{placement}";
+
+                // A long name is now ellipsised rather than clipped, so the full name and
+                // its source path have to stay reachable somewhere.
+                element.tooltip = string.IsNullOrEmpty(descriptor.SourcePath)
+                    ? descriptor.Name
+                    : $"{descriptor.Name}\n{descriptor.SourcePath}\n" +
+                      $"{descriptor.PointCount:N0} points · {descriptor.BytesPerPoint} B/pt";
 
                 element.Q<VisualElement>("swatch").style.backgroundColor = cloud.Display.CloudColor;
 

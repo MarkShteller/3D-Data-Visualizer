@@ -118,26 +118,67 @@
 .pc-cloud-item {
     flex-direction: row;
     align-items: center;
-    padding: 4px 6px;
+    padding: 3px 6px;
+    overflow: hidden;
+}
+
+/* The toggle ships with margins that eat the width the name needs. */
+.pc-cloud-item > .unity-toggle {
+    margin: 0;
+    flex-shrink: 0;
 }
 
 .pc-cloud-item__swatch {
     width: 9px;
     height: 9px;
+    flex-shrink: 0;
     border-radius: 5px;
+    margin-left: 4px;
     margin-right: 7px;
     border-width: 1px;
     border-color: var(--pc-border);
 }
 
-.pc-cloud-item__name {
+/* min-width: 0 is the load-bearing declaration. A flex item defaults to min-width:auto,
+ * which refuses to shrink below its content — so a long cloud name pushes the row wider
+ * than the panel and the text is clipped mid-glyph instead of ellipsised. */
+.pc-cloud-item__text {
     flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* Ellipsis needs all three: nowrap so it stays on one line, hidden so it can clip, and
+ * text-overflow to render the marker rather than a hard cut.
+ *
+ * Heights are explicit and sum with the row padding to exactly the ListView's
+ * fixedItemHeight (20 + 16 + 3 + 3 = 42). Left to the font's own line box these measured
+ * 51 px against a 42 px row, silently cutting the second line off every entry — and a
+ * ListView cannot grow a fixed-height row to fit its contents. */
+.pc-cloud-item__name {
     color: var(--pc-text);
+    height: 20px;
+    font-size: 12px;
+    -unity-text-align: middle-left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .pc-cloud-item__meta {
     color: var(--pc-text-dim);
+    height: 16px;
     font-size: 11px;
+    -unity-text-align: middle-left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.unity-collection-view__item--selected .pc-cloud-item__name,
+.unity-collection-view__item--selected .pc-cloud-item__meta {
+    color: var(--pc-on-accent);
 }
 
 .unity-collection-view__item:hover {

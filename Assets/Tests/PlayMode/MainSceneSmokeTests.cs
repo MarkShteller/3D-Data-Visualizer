@@ -4,6 +4,7 @@ using NUnit.Framework;
 using PointCloud.App.Bootstrap;
 using PointCloud.App.UI;
 using PointCloud.App.Viewer;
+using PointCloud.Core.Synthetic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
@@ -161,6 +162,69 @@ namespace PointCloud.Tests.PlayMode
                 $"UI built: {colorMode.choices.Count} render modes, " +
                 $"{root.Q<DropdownField>("colormap").choices.Count} colormaps, " +
                 $"cloud list shows {cloudList.itemsSource.Count} cloud(s)");
+        }
+
+        /// <summary>
+        /// Cloud list rows must contain their contents.
+        ///
+        /// A flex item defaults to min-width:auto, so a long name pushes the row wider than
+        /// the panel and gets clipped mid-glyph instead of ellipsised — and a fixed item
+        /// height that is too small silently cuts the second line off every row. Both are
+        /// invisible to any test that only checks the elements exist, so this measures the
+        /// resolved geometry.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator CloudListRowsFitWithinThePanel()
+        {
+            var viewer = FindOne<PointCloudViewer>();
+            var document = FindOne<UIDocument>();
+
+            // A name long enough to overflow any sane panel width.
+            viewer.LoadSynthetic(SyntheticShape.SphereShell, 50_000);
+            for (int i = 0; i < 4; i++) yield return null;
+
+            var list = document.rootVisualElement.Q<ListView>("cloud-list");
+            Assert.Greater(list.itemsSource.Count, 0);
+
+            // Let the list build and lay out its rows.
+            list.Rebuild();
+            for (int i = 0; i < 6; i++) yield return null;
+
+            var row = list.Q(className: "pc-cloud-item");
+            Assert.IsNotNull(row, "No cloud row was built.");
+
+            float rowWidth = row.resolvedStyle.width;
+            float listWidth = list.resolvedStyle.width;
+            Assert.Greater(rowWidth, 0f, "The row has no resolved width yet.");
+            Assert.LessOrEqual(rowWidth, listWidth + 1f,
+                $"A cloud row is {rowWidth:F0} px wide inside a {listWidth:F0} px list, so its " +
+                "contents are clipped. The text container needs min-width: 0 to shrink.");
+
+            // Both text lines must fit inside the row's fixed height.
+            var name = row.Q<Label>("name");
+            var meta = row.Q<Label>("meta");
+            Assert.IsNotNull(name);
+            Assert.IsNotNull(meta);
+
+            float contentBottom = meta.resolvedStyle.height + name.resolvedStyle.height +
+                                  row.resolvedStyle.paddingTop + row.resolvedStyle.paddingBottom;
+
+            Assert.LessOrEqual(contentBottom, list.fixedItemHeight + 0.5f,
+                $"Row content needs {contentBottom:F1} px but fixedItemHeight is " +
+                $"{list.fixedItemHeight:F1} px, so the second line is cut off.");
+
+            // Ellipsis needs these to agree, or the text hard-clips mid-glyph instead.
+            Assert.AreEqual(WhiteSpace.NoWrap, name.resolvedStyle.whiteSpace,
+                "The name must not wrap, or it cannot ellipsise.");
+            Assert.AreEqual(TextOverflow.Ellipsis, name.resolvedStyle.textOverflow,
+                "The name must be set to ellipsise rather than clip.");
+
+            Assert.IsNotEmpty(row.tooltip,
+                "An ellipsised name must still expose the full name and path somewhere.");
+
+            TestContext.WriteLine(
+                $"row {rowWidth:F0}x{row.resolvedStyle.height:F0} px in a {listWidth:F0} px list; " +
+                $"content needs {contentBottom:F1} of {list.fixedItemHeight:F0} px");
         }
 
         /// <summary>
