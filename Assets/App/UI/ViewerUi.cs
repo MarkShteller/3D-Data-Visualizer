@@ -35,6 +35,8 @@ namespace PointCloud.App.UI
         Slider          _pixelSize, _opacity;
         Toggle          _zoomToCursor;
         Button          _loadSynthetic, _openFile, _clearClouds, _cancelLoad;
+        Button          _zeroPosition, _zeroAll, _resetPositions;
+        Slider          _zoomSensitivity;
         DropdownField   _recentFiles;
         TextField       _pathField;
         Label           _loadStatus;
@@ -67,6 +69,18 @@ namespace PointCloud.App.UI
 
         /// <summary>Raised when the user toggles zoom-to-cursor.</summary>
         public event Action<bool> ZoomToCursorChanged;
+
+        /// <summary>Raised when the user changes the zoom rate.</summary>
+        public event Action<float> ZoomSensitivityChanged;
+
+        /// <summary>Raised to centre the selected cloud on the world origin.</summary>
+        public event Action ZeroSelectedRequested;
+
+        /// <summary>Raised to centre every cloud on the world origin.</summary>
+        public event Action ZeroAllRequested;
+
+        /// <summary>Raised to restore every cloud's source position.</summary>
+        public event Action ResetPositionsRequested;
 
         public GpuPointCloud SelectedCloud { get; private set; }
 
@@ -106,6 +120,11 @@ namespace PointCloud.App.UI
             _syntheticCount = _root.Q<DropdownField>("synthetic-count");
             _loadSynthetic  = _root.Q<Button>("load-synthetic");
 
+            _zeroPosition    = _root.Q<Button>("zero-position");
+            _zeroAll         = _root.Q<Button>("zero-all");
+            _resetPositions  = _root.Q<Button>("reset-positions");
+            _zoomSensitivity = _root.Q<Slider>("zoom-sensitivity");
+
             _openFile     = _root.Q<Button>("open-file");
             _clearClouds  = _root.Q<Button>("clear-clouds");
             _cancelLoad   = _root.Q<Button>("cancel-load");
@@ -122,6 +141,19 @@ namespace PointCloud.App.UI
 
         void SetupOpenControls()
         {
+            if (_zeroPosition != null) _zeroPosition.clicked += () => ZeroSelectedRequested?.Invoke();
+            if (_zeroAll != null) _zeroAll.clicked += () => ZeroAllRequested?.Invoke();
+            if (_resetPositions != null) _resetPositions.clicked += () => ResetPositionsRequested?.Invoke();
+
+            if (_zoomSensitivity != null)
+            {
+                _zoomSensitivity.SetValueWithoutNotify(0.35f);
+                _zoomSensitivity.RegisterValueChangedCallback(evt =>
+                {
+                    if (!_suppressCallbacks) ZoomSensitivityChanged?.Invoke(evt.newValue);
+                });
+            }
+
             if (_openFile != null) _openFile.clicked += () => OpenDialogRequested?.Invoke();
             if (_clearClouds != null) _clearClouds.clicked += () => ClearRequested?.Invoke();
             if (_cancelLoad != null) _cancelLoad.clicked += () => LoadCancelRequested?.Invoke();
@@ -249,9 +281,13 @@ namespace PointCloud.App.UI
                 var cloud = _cloudItems[index];
 
                 element.Q<Label>("name").text = cloud.Descriptor.Name;
+
+                // Flag a moved cloud: a silently-shifted position would be badly misleading
+                // when the whole purpose of the view is comparing two clouds' geometry.
+                string placement = cloud.IsTranslated ? " · zeroed" : "";
                 element.Q<Label>("meta").text =
                     $"{FormatCount(cloud.Descriptor.PointCount)} · {cloud.Descriptor.FormatId} · " +
-                    $"{cloud.VramBytes / (1024 * 1024)} MB";
+                    $"{cloud.VramBytes / (1024 * 1024)} MB{placement}";
 
                 element.Q<VisualElement>("swatch").style.backgroundColor = cloud.Display.CloudColor;
 

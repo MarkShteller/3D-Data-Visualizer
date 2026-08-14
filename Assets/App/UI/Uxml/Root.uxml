@@ -37,6 +37,15 @@
             </ui:VisualElement>
             <ui:Button name="load-synthetic" text="Generate Synthetic Cloud" />
 
+            <ui:Label class="pc-section-title" text="ALIGNMENT" />
+            <ui:VisualElement class="pc-row">
+                <ui:Button name="zero-position" text="Zero Selected" style="flex-grow: 1;" />
+                <ui:Button name="zero-all" text="Zero All" style="flex-grow: 1;" />
+            </ui:VisualElement>
+            <ui:Button name="reset-positions" text="Restore Source Positions" />
+            <ui:Label class="pc-hint"
+                      text="Moves a cloud's centre to the world origin so clouds captured in different frames overlay for comparison. Display only — the data is untouched." />
+
             <ui:Label class="pc-section-title" text="ATTRIBUTES" />
             <ui:VisualElement name="attribute-list" />
 
@@ -61,6 +70,8 @@
             <ui:Label class="pc-section-title" text="VIEW" />
             <ui:DropdownField name="up-axis" label="Up axis" class="pc-field" />
             <ui:Toggle name="zoom-to-cursor" label="Zoom to cursor" class="pc-field" />
+            <ui:Slider name="zoom-sensitivity" label="Zoom rate" low-value="0.05" high-value="5"
+                       show-input-field="true" class="pc-field" />
             <ui:Label class="pc-hint"
                       text="LMB orbit · MMB/Shift+LMB pan · RMB dolly · Wheel zoom · F focus · A frame all · ` fly" />
         </ui:VisualElement>

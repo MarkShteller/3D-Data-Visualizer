@@ -85,6 +85,10 @@ namespace PointCloud.App.Viewer
                 _ui.SyntheticCloudRequested += (shape, count) => LoadSynthetic(shape, count, _scale);
                 _ui.UpAxisChanged           += ApplyUpAxis;
                 _ui.ZoomToCursorChanged     += enabled => _controller.ZoomToCursor = enabled;
+                _ui.ZoomSensitivityChanged  += rate => _controller.ZoomSensitivity = rate;
+                _ui.ZeroSelectedRequested   += () => ZeroPosition(_ui.SelectedCloud);
+                _ui.ZeroAllRequested        += ZeroAllPositions;
+                _ui.ResetPositionsRequested += ResetPositions;
                 _ui.OpenDialogRequested     += ShowOpenDialog;
                 _ui.FilesRequested          += paths => _ = OpenFilesAsync(paths);
                 _ui.LoadCancelRequested     += CancelLoad;
@@ -352,11 +356,14 @@ namespace PointCloud.App.Viewer
         }
 
         /// <summary>
-        /// Distance along a cursor ray to the nearest visible cloud, for zoom-to-cursor.
+        /// Distance along a cursor ray to the nearest visible cloud, for zoom-to-cursor and
+        /// for scaling the zoom step.
         ///
-        /// Bounds-level for now, which is enough to make zooming feel anchored. M7's CPU
-        /// picker replaces this with a true per-point hit so zooming targets the surface
-        /// under the cursor rather than the front of its bounding box.
+        /// Tests chunk AABBs rather than the whole-cloud box. The chunk table is already
+        /// resident for culling, and on a sparse or hollow cloud the outer box can sit tens
+        /// of metres in front of anything you can actually see — which makes zoom feel like
+        /// it stops short. Falls back to the whole-cloud bounds only if a cloud has no chunk
+        /// table. M7's CPU picker upgrades this to a true per-point hit.
         /// </summary>
         float? ProbeDepth(Ray ray)
         {
@@ -365,11 +372,54 @@ namespace PointCloud.App.Viewer
             foreach (var cloud in _renderer.Clouds)
             {
                 if (!cloud.Display.Visible) continue;
-                if (cloud.WorldBounds.IntersectRay(ray, out float distance) && distance < nearest)
-                    nearest = distance;
+
+                if (cloud.TryRaycastChunks(ray, out float distance))
+                {
+                    if (distance < nearest) nearest = distance;
+                }
+                else if (cloud.WorldBounds.IntersectRay(ray, out float boundsDistance) &&
+                         boundsDistance < nearest)
+                {
+                    nearest = boundsDistance;
+                }
             }
 
             return float.IsPositiveInfinity(nearest) ? null : nearest;
+        }
+
+        // --- placement -----------------------------------------------------------
+
+        /// <summary>
+        /// Move a cloud's centre onto the world origin. Applying it to several clouds brings
+        /// them into the same place so they can be compared by overlaying.
+        /// </summary>
+        public void ZeroPosition(GpuPointCloud cloud)
+        {
+            if (cloud == null) return;
+
+            cloud.CenterAtOrigin();
+            Log($"'{cloud.Descriptor.Name}' centred at the origin (offset {cloud.Translation}).");
+            _ui?.RefreshCloudList();
+        }
+
+        /// <summary>Centre every loaded cloud at the origin — the alignment shortcut for comparison.</summary>
+        public void ZeroAllPositions()
+        {
+            foreach (var cloud in _renderer.Clouds) cloud.CenterAtOrigin();
+
+            Log($"Centred {_renderer.Clouds.Count} cloud(s) at the origin.");
+            _ui?.RefreshCloudList();
+            FrameAll();
+        }
+
+        /// <summary>Restore every cloud to its source position.</summary>
+        public void ResetPositions()
+        {
+            foreach (var cloud in _renderer.Clouds) cloud.ResetTransform();
+
+            Log("Restored source positions.");
+            _ui?.RefreshCloudList();
+            FrameAll();
         }
 
         void ApplyUpAxis(SourceUpAxis upAxis)
@@ -387,9 +437,10 @@ namespace PointCloud.App.Viewer
 
         static void ApplyUpAxisTo(GpuPointCloud cloud, SourceUpAxis upAxis)
         {
-            cloud.CloudToWorld = CoordinateConvention.SourceToWorld(upAxis);
-            cloud.Material.SetMatrix(GpuPointCloud.Props.CloudToWorld, cloud.CloudToWorld);
-            cloud.RecomputeWorldBounds();
+            // Only the base conversion changes; any user translation is preserved, so
+            // re-orienting a cloud does not silently undo an alignment.
+            cloud.BaseTransform = CoordinateConvention.SourceToWorld(upAxis);
+            cloud.ApplyTransform();
         }
 
         /// <summary>

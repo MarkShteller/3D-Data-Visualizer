@@ -24,7 +24,11 @@ namespace PointCloud.App.CameraControl
         public float   Pitch = 20f;
 
         public float OrbitSensitivity = 0.25f;   // degrees per pixel
-        public float ZoomSensitivity  = 1f;   // exponent per scroll notch
+        /// <summary>
+        /// Exponent per scroll notch. 0.35 moves about 30% of the way to the surface per
+        /// notch, which is brisk at range without overshooting up close.
+        /// </summary>
+        public float ZoomSensitivity  = 0.35f;
         public float DollySensitivity = 0.005f;  // exponent per pixel
         public float FlySpeed         = 1.0f;    // scene radii per second
         public float BoostMultiplier  = 4f;
@@ -110,28 +114,59 @@ namespace PointCloud.App.CameraControl
             Pivot -= rotation * Vector3.up * (pixelDelta.y * worldPerPixel);
         }
 
+        /// <summary>
+        /// Zoom, with the step scaled by how far the camera is from the CLOUD — not from the
+        /// orbit pivot.
+        ///
+        /// The distinction is the whole point. Scaling by pivot distance means that once you
+        /// are nose-to-surface but the pivot is still far behind the geometry, a single notch
+        /// still jumps a huge absolute distance and shoots straight through. Measuring
+        /// against the surface makes each notch a fixed *fraction* of the remaining gap, so
+        /// zooming is fast out at range and asymptotically gentle up close — and scrolling
+        /// can never cross the surface, because a fraction of the gap is never all of it.
+        /// </summary>
         void Zoom(Camera camera, ViewportInput input, float scroll, Func<Ray, float?> depthProbe)
         {
-            float oldDistance = Distance;
-            float newDistance = Mathf.Clamp(oldDistance * Mathf.Exp(-scroll * ZoomSensitivity),
-                                            MinDistance, MaxDistance);
+            var ray = camera.ScreenPointToRay(input.PointerPosition);
+            float? hitDistance = ZoomToCursor && depthProbe != null ? depthProbe(ray) : null;
 
-            if (ZoomToCursor && depthProbe != null)
+            // Fall back to pivot distance only when there is nothing under the cursor;
+            // pointing at empty space should still zoom sensibly.
+            float reference = hitDistance ?? Distance;
+            float applied = ComputeZoomRatio(reference, scroll, ZoomSensitivity);
+
+            if (hitDistance.HasValue)
             {
-                var ray = camera.ScreenPointToRay(input.PointerPosition);
-                float? hitDistance = depthProbe(ray);
-
-                if (hitDistance.HasValue)
-                {
-                    // Keep the point under the cursor fixed: scale the pivot's offset from it
-                    // by exactly the factor the view distance changed by.
-                    Vector3 target = ray.origin + ray.direction * hitDistance.Value;
-                    float scale = newDistance / Mathf.Max(oldDistance, 1e-9f);
-                    Pivot = target + (Pivot - target) * scale;
-                }
+                // Scaling the pivot's offset from the target by the same factor as the view
+                // distance keeps the target pinned under the cursor: the camera ends up at
+                // target + applied * (camera - target).
+                Vector3 target = ray.origin + ray.direction * hitDistance.Value;
+                Pivot = target + (Pivot - target) * applied;
             }
 
-            Distance = newDistance;
+            Distance = Mathf.Clamp(Distance * applied, MinDistance, MaxDistance);
+        }
+
+        /// <summary>
+        /// The zoom law, as a pure function so it can be tested without a scene or a mouse.
+        ///
+        /// Multiplicative in the reference distance: one notch always covers the same
+        /// *fraction* of the gap, whatever the scale. That gives fast travel at range,
+        /// asymptotically fine control up close, and — because a fraction of a gap is never
+        /// the whole gap — makes it impossible to scroll through the surface.
+        /// </summary>
+        /// <param name="referenceDistance">Distance from the camera to what it is zooming toward.</param>
+        /// <param name="scroll">Scroll notches; positive zooms in.</param>
+        /// <returns>The factor to scale both the view distance and the pivot offset by.</returns>
+        public static float ComputeZoomRatio(float referenceDistance, float scroll, float sensitivity)
+        {
+            float reference = Mathf.Max(referenceDistance, MinDistance);
+            float requested = reference * Mathf.Exp(-scroll * sensitivity);
+            float clamped   = Mathf.Clamp(requested, MinDistance, MaxDistance);
+
+            // Return the ratio actually achieved after clamping, not the one requested, so
+            // the cursor anchor stays exact even at the ends of the range.
+            return clamped / reference;
         }
 
         void Fly(ViewportInput input, float deltaTime)

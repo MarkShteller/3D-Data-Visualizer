@@ -47,8 +47,25 @@ namespace PointCloud.Rendering
 
         public PointCloudDisplaySettings Display { get; } = new();
 
-        /// <summary>Cloud-to-world transform, combining SourceToWorld with any user placement.</summary>
-        public Matrix4x4 CloudToWorld { get; set; } = Matrix4x4.identity;
+        /// <summary>
+        /// Source-space conversion: up-axis convention and unit scale. Set by the app from
+        /// the descriptor; not something the user moves.
+        /// </summary>
+        public Matrix4x4 BaseTransform { get; set; } = Matrix4x4.identity;
+
+        /// <summary>
+        /// User placement on top of <see cref="BaseTransform"/>, in world units.
+        ///
+        /// Kept separate so re-orienting a cloud (up-axis toggle) and moving it (aligning it
+        /// with another cloud) never overwrite each other.
+        /// </summary>
+        public Vector3 Translation { get; set; } = Vector3.zero;
+
+        /// <summary>Full cloud-to-world transform. This is what the shader receives.</summary>
+        public Matrix4x4 CloudToWorld => Matrix4x4.Translate(Translation) * BaseTransform;
+
+        /// <summary>True when the user has moved this cloud off its source position.</summary>
+        public bool IsTranslated => Translation != Vector3.zero;
 
         /// <summary>How many points have finished uploading. The renderer draws only this prefix.</summary>
         public int UploadedPointCount { get; private set; }
@@ -91,7 +108,7 @@ namespace PointCloud.Rendering
 
             Material = new Material(shader) { name = $"PointCloud_{Descriptor.Name}", hideFlags = HideFlags.HideAndDontSave };
 
-            CloudToWorld = Descriptor.SourceToWorld;
+            BaseTransform = Descriptor.SourceToWorld;
             RecomputeWorldBounds();
 
             AllocateBuffers(data);
@@ -244,6 +261,107 @@ namespace PointCloud.Rendering
                 });
             }
             SetDrawCommands(_commandScratch);
+        }
+
+        /// <summary>
+        /// Move this cloud so its centre sits on the world origin.
+        ///
+        /// The point of it: two clouds captured in different coordinate frames — a scan and
+        /// a prediction, or the same scene from two sessions — land kilometres apart and
+        /// cannot be visually compared at all. Zeroing each one brings them into the same
+        /// place so they overlay. It is a display transform only; nothing is written back
+        /// and <see cref="ResetTransform"/> restores the source position exactly.
+        /// </summary>
+        public void CenterAtOrigin()
+        {
+            // Centre in world space BEFORE translation, so calling this twice is idempotent
+            // rather than drifting further each press.
+            var center = BaseTransform.MultiplyPoint3x4(Descriptor.LocalBounds.center);
+            Translation = -center;
+            ApplyTransform();
+        }
+
+        /// <summary>Restore the cloud's source position.</summary>
+        public void ResetTransform()
+        {
+            Translation = Vector3.zero;
+            ApplyTransform();
+        }
+
+        /// <summary>Push the current transform to the material and refresh the culling bounds.</summary>
+        public void ApplyTransform()
+        {
+            if (Material != null) Material.SetMatrix(Props.CloudToWorld, CloudToWorld);
+            RecomputeWorldBounds();
+        }
+
+        /// <summary>
+        /// Nearest chunk-AABB hit along a world-space ray, or false on a miss.
+        ///
+        /// Chunk granularity rather than whole-cloud bounds: the chunk table is already
+        /// resident for culling, and 16-160 tight boxes approximate the actual surface far
+        /// better than one box around everything. That matters for zoom-to-cursor, where
+        /// the whole-cloud box can be tens of metres in front of the geometry the user is
+        /// actually looking at.
+        /// </summary>
+        public bool TryRaycastChunks(Ray worldRay, out float distance)
+        {
+            distance = float.PositiveInfinity;
+            if (!Chunks.IsCreated || Chunks.Length == 0) return false;
+
+            // Transform the ray into cloud space once, rather than transforming every box.
+            var inverse = CloudToWorld.inverse;
+            Vector3 origin    = inverse.MultiplyPoint3x4(worldRay.origin);
+            Vector3 direction = inverse.MultiplyVector(worldRay.direction);
+            if (direction.sqrMagnitude < 1e-20f) return false;
+
+            float best = float.PositiveInfinity;
+
+            for (int i = 0; i < Chunks.Length; i++)
+            {
+                var chunk = Chunks[i];
+                if (SlabIntersect(origin, direction, chunk.BoundsMin, chunk.BoundsMax, out float t) && t < best)
+                    best = t;
+            }
+
+            if (float.IsPositiveInfinity(best)) return false;
+
+            // Convert back through the transform so any scale in it is respected.
+            Vector3 localHit = origin + direction * best;
+            distance = Vector3.Distance(worldRay.origin, CloudToWorld.MultiplyPoint3x4(localHit));
+            return true;
+        }
+
+        /// <summary>Standard slab test. Returns the entry distance, or 0 when the origin is inside.</summary>
+        static bool SlabIntersect(Vector3 origin, Vector3 direction, Vector3 min, Vector3 max, out float t)
+        {
+            float tMin = 0f;
+            float tMax = float.PositiveInfinity;
+
+            for (int axis = 0; axis < 3; axis++)
+            {
+                float d = direction[axis];
+                float o = origin[axis];
+
+                if (Mathf.Abs(d) < 1e-12f)
+                {
+                    // Parallel to this slab: a miss unless the origin already lies within it.
+                    if (o < min[axis] || o > max[axis]) { t = 0f; return false; }
+                    continue;
+                }
+
+                float inverseD = 1f / d;
+                float t1 = (min[axis] - o) * inverseD;
+                float t2 = (max[axis] - o) * inverseD;
+                if (t1 > t2) (t1, t2) = (t2, t1);
+
+                tMin = Mathf.Max(tMin, t1);
+                tMax = Mathf.Min(tMax, t2);
+                if (tMin > tMax) { t = 0f; return false; }
+            }
+
+            t = tMin;
+            return true;
         }
 
         public void RecomputeWorldBounds()
