@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements">
+    <Style src="project://database/Assets/App/UI/Uss/Theme.uss" />
+
+    <!-- The root must not intercept pointer events, or the whole viewport becomes
+         undraggable. Only the docks below opt back in. -->
+    <ui:VisualElement name="root" class="pc-root pc-passthrough" picking-mode="Ignore">
+
+        <ui:VisualElement name="stats-hud" class="pc-hud">
+            <ui:Label name="stat-points" class="pc-hud__stat pc-hud__stat--emphasis" text="0 pts" />
+            <ui:Label name="stat-drawn" class="pc-hud__stat" text="0 drawn" />
+            <ui:Label name="stat-draws" class="pc-hud__stat" text="0 draws" />
+            <ui:Label name="stat-vram" class="pc-hud__stat" text="0 MB" />
+            <ui:Label name="stat-frame" class="pc-hud__stat" text="0.0 ms" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="dock-left" class="pc-dock pc-dock--left">
+            <ui:Label class="pc-section-title pc-section-title--first" text="CLOUDS" />
+            <ui:ListView name="cloud-list" class="pc-cloud-list" />
+
+            <ui:VisualElement class="pc-row">
+                <ui:DropdownField name="synthetic-shape" class="pc-field" style="flex-grow: 1;" />
+            </ui:VisualElement>
+            <ui:VisualElement class="pc-row">
+                <ui:DropdownField name="synthetic-count" class="pc-field" style="flex-grow: 1;" />
+            </ui:VisualElement>
+            <ui:Button name="load-synthetic" text="Generate Synthetic Cloud" />
+
+            <ui:Label class="pc-section-title" text="ATTRIBUTES" />
+            <ui:VisualElement name="attribute-list" />
+
+            <ui:Label class="pc-section-title" text="SOURCE" />
+            <ui:Label name="source-info" class="pc-hint" text="No cloud loaded." />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="dock-right" class="pc-dock pc-dock--right">
+            <ui:Label class="pc-section-title pc-section-title--first" text="DISPLAY" />
+            <ui:DropdownField name="color-mode" label="Mode" class="pc-field" />
+            <ui:Label name="color-mode-hint" class="pc-warning" text="" />
+            <ui:DropdownField name="colormap" label="Ramp" class="pc-field" />
+
+            <ui:Label class="pc-section-title" text="POINTS" />
+            <ui:DropdownField name="size-mode" label="Sizing" class="pc-field" />
+            <ui:DropdownField name="shape" label="Shape" class="pc-field" />
+            <ui:Slider name="pixel-size" label="Size" low-value="1" high-value="16"
+                       show-input-field="true" class="pc-field" />
+            <ui:Slider name="opacity" label="Opacity" low-value="0" high-value="1"
+                       show-input-field="true" class="pc-field" />
+
+            <ui:Label class="pc-section-title" text="VIEW" />
+            <ui:DropdownField name="up-axis" label="Up axis" class="pc-field" />
+            <ui:Toggle name="zoom-to-cursor" label="Zoom to cursor" class="pc-field" />
+            <ui:Label class="pc-hint"
+                      text="LMB orbit · MMB/Shift+LMB pan · RMB dolly · Wheel zoom · F focus · A frame all · ` fly" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

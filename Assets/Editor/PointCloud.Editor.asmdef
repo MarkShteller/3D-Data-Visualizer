@@ -1,0 +1,28 @@
+{
+    "name": "PointCloud.Editor",
+    "rootNamespace": "PointCloud.Editor",
+    "references": [
+        "PointCloud.Core",
+        "PointCloud.Formats",
+        "PointCloud.Rendering",
+        "PointCloud.App",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Mathematics",
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Universal.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

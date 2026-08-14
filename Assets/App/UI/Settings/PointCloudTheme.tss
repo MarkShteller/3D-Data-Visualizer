@@ -1,0 +1,8 @@
+/* Runtime theme.
+ *
+ * A PanelSettings asset with no theme style sheet renders every control invisible in a
+ * build while looking perfectly fine in the editor, which is a genuinely miserable thing
+ * to debug. Importing the default runtime theme by URL rather than referencing the
+ * package asset by path keeps this working across Unity versions, where those internal
+ * paths move. */
+@import url("unity-theme://default");

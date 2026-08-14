@@ -1,0 +1,290 @@
+/* Application theme.
+ *
+ * Palette (see UiPalette.cs, which is the source of truth — USS cannot read C#):
+ *   #242038 Space Cadet · #725AC1 Purple · #8D86C9 Violet · #CAC4CE Lavender · #F7ECE1 Linen
+ *
+ * Contrast discipline: all body text is Linen (11.4:1) or Lavender (7.8:1) on the panel
+ * surface. Violet lands at 4.0:1 and Purple at 2.5:1, so neither is ever used for small
+ * text — only for marks, borders, fills and selection. Linen on a Purple fill is 4.6:1,
+ * which is what makes buttons and the selected list row legible.
+ *
+ * The viewport behind these panels is Space Cadet, so panel surfaces are lifted toward
+ * Purple to separate from it; the palette has no mid-tone neutral to do that with. */
+
+:root {
+    --pc-scene: rgb(36, 32, 56);            /* #242038 — matches the camera clear colour */
+
+    --pc-surface: rgba(50, 42, 81, 0.96);   /* #322A51 panel */
+    --pc-surface-solid: rgb(50, 42, 81);
+    --pc-raised: rgb(62, 51, 101);          /* #3E3365 list rows, hover */
+    --pc-input: rgb(44, 38, 70);            /* #2C2646 inset fields */
+
+    --pc-border: rgb(67, 63, 100);          /* #433F64 */
+    --pc-border-strong: rgb(141, 134, 201); /* Violet */
+
+    --pc-accent: rgb(114, 90, 193);         /* Purple — fills and selection */
+    --pc-accent-soft: rgba(114, 90, 193, 0.28);
+    --pc-accent-mark: rgb(141, 134, 201);   /* Violet — glyphs and rules */
+
+    --pc-text: rgb(247, 236, 225);          /* Linen */
+    --pc-text-dim: rgb(202, 196, 206);      /* Lavender */
+    --pc-on-accent: rgb(247, 236, 225);     /* Linen on a Purple fill — 4.6:1 */
+}
+
+.pc-root {
+    flex-grow: 1;
+    font-size: 12px;
+    color: var(--pc-text);
+}
+
+/* Panels must not swallow pointer events over their transparent areas; only actual
+ * chrome opts back in, or the whole viewport becomes undraggable. */
+.pc-passthrough {
+    position: absolute;
+    left: 0; top: 0; right: 0; bottom: 0;
+}
+
+.pc-dock {
+    position: absolute;
+    background-color: var(--pc-surface);
+    border-color: var(--pc-border);
+    border-width: 1px;
+    border-radius: 5px;
+    padding: 10px;
+}
+
+.pc-dock--left { left: 8px; top: 8px; bottom: 8px; width: 300px; }
+.pc-dock--right { right: 8px; top: 46px; width: 320px; max-height: 88%; }
+
+/* --- Stats HUD ---------------------------------------------------------- */
+
+.pc-hud {
+    position: absolute;
+    right: 8px;
+    top: 8px;
+    flex-direction: row;
+    background-color: var(--pc-surface);
+    border-color: var(--pc-border);
+    border-width: 1px;
+    border-radius: 5px;
+    padding: 6px 12px;
+}
+
+.pc-hud__stat {
+    margin-right: 14px;
+    color: var(--pc-text-dim);
+}
+
+.pc-hud__stat--emphasis {
+    color: var(--pc-text);
+    -unity-font-style: bold;
+}
+
+/* --- Sections ----------------------------------------------------------- */
+
+.pc-section-title {
+    -unity-font-style: bold;
+    font-size: 11px;
+    color: var(--pc-text-dim);
+    margin-top: 12px;
+    margin-bottom: 5px;
+    padding-bottom: 3px;
+    letter-spacing: 1px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--pc-border);
+}
+
+/* UI Toolkit's USS supports no structural pseudo-classes — :first-child parses but does
+ * nothing except warn — so the first title in a dock opts out by class instead. */
+.pc-section-title--first { margin-top: 0; }
+
+.pc-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+/* --- Cloud list --------------------------------------------------------- */
+
+.pc-cloud-list {
+    flex-grow: 0;
+    max-height: 200px;
+    background-color: var(--pc-input);
+    border-color: var(--pc-border);
+    border-width: 1px;
+    border-radius: 4px;
+}
+
+.pc-cloud-item {
+    flex-direction: row;
+    align-items: center;
+    padding: 4px 6px;
+}
+
+.pc-cloud-item__swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 5px;
+    margin-right: 7px;
+    border-width: 1px;
+    border-color: var(--pc-border);
+}
+
+.pc-cloud-item__name {
+    flex-grow: 1;
+    color: var(--pc-text);
+}
+
+.pc-cloud-item__meta {
+    color: var(--pc-text-dim);
+    font-size: 11px;
+}
+
+.unity-collection-view__item:hover {
+    background-color: var(--pc-raised);
+}
+
+/* Selection uses the Purple fill; every label inside stays Linen for 4.6:1. */
+.unity-collection-view__item--selected {
+    background-color: var(--pc-accent);
+}
+
+.unity-collection-view__item--selected .pc-cloud-item__meta,
+.unity-collection-view__item--selected .pc-cloud-item__name {
+    color: var(--pc-on-accent);
+}
+
+/* --- Attribute presence -------------------------------------------------
+ * A first-class diagnostic, not decoration: a CV engineer needs to see that their
+ * exporter dropped a channel. Present and absent are separated by brightness AND by
+ * glyph, never by colour alone. */
+
+.pc-attribute {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.pc-attribute__mark {
+    width: 15px;
+    -unity-font-style: bold;
+}
+
+.pc-attribute--present .pc-attribute__mark { color: var(--pc-text); }
+.pc-attribute--present .pc-attribute__label { color: var(--pc-text); }
+
+.pc-attribute--absent .pc-attribute__mark { color: var(--pc-accent-mark); }
+.pc-attribute--absent .pc-attribute__label { color: var(--pc-text-dim); }
+
+/* --- Fields ------------------------------------------------------------- */
+
+.pc-field { margin-bottom: 7px; }
+
+.pc-field .unity-base-field__label,
+.unity-base-field__label {
+    min-width: 76px;
+    color: var(--pc-text-dim);
+}
+
+.unity-base-popup-field__input,
+.unity-base-text-field__input,
+.unity-base-field__input {
+    background-color: var(--pc-input);
+    border-color: var(--pc-border);
+    border-width: 1px;
+    border-radius: 3px;
+    color: var(--pc-text);
+}
+
+.unity-base-field:focus .unity-base-field__input,
+.unity-base-popup-field:focus .unity-base-popup-field__input {
+    border-color: var(--pc-border-strong);
+}
+
+.unity-base-popup-field__text { color: var(--pc-text); }
+.unity-base-popup-field__arrow { -unity-background-image-tint-color: var(--pc-text-dim); }
+
+/* Dropdown menus render into their own panel, so they need styling of their own or they
+ * fall back to the default theme's light chrome. */
+.unity-base-dropdown__container-outer {
+    background-color: var(--pc-surface-solid);
+    border-color: var(--pc-border);
+    border-width: 1px;
+}
+
+.unity-base-dropdown__item { color: var(--pc-text); }
+.unity-base-dropdown__item:hover { background-color: var(--pc-raised); }
+.unity-base-dropdown__checkmark { -unity-background-image-tint-color: var(--pc-accent-mark); }
+
+.unity-button {
+    background-color: var(--pc-accent);
+    color: var(--pc-on-accent);
+    border-color: var(--pc-border-strong);
+    border-width: 1px;
+    border-radius: 4px;
+    padding: 5px 10px;
+    margin: 3px 0;
+    -unity-font-style: bold;
+}
+
+.unity-button:hover { background-color: var(--pc-border-strong); }
+.unity-button:active { background-color: var(--pc-accent); }
+
+.unity-slider .unity-base-slider__tracker {
+    background-color: var(--pc-input);
+    border-color: var(--pc-border);
+    border-width: 1px;
+}
+
+.unity-slider .unity-base-slider__dragger {
+    background-color: var(--pc-accent-mark);
+    border-color: var(--pc-surface-solid);
+    border-width: 1px;
+    border-radius: 6px;
+}
+
+.unity-slider:focus .unity-base-slider__dragger { background-color: var(--pc-text); }
+
+.unity-toggle__checkmark {
+    background-color: var(--pc-input);
+    border-color: var(--pc-border);
+    border-width: 1px;
+    -unity-background-image-tint-color: var(--pc-accent-mark);
+}
+
+/* --- Messages ----------------------------------------------------------- */
+
+.pc-hint {
+    color: var(--pc-text-dim);
+    font-size: 11px;
+    white-space: normal;
+    margin-top: 3px;
+}
+
+/* The palette has no amber or red, so a callout is marked by an accent bar and a raised
+ * background rather than by hue — which also keeps it legible for colour-blind users. */
+.pc-warning {
+    color: var(--pc-text);
+    font-size: 11px;
+    white-space: normal;
+    background-color: var(--pc-accent-soft);
+    border-left-width: 3px;
+    border-left-color: var(--pc-accent-mark);
+    border-radius: 3px;
+    padding: 4px 7px;
+    margin-bottom: 5px;
+}
+
+.pc-empty {
+    color: var(--pc-text-dim);
+    white-space: normal;
+    -unity-text-align: middle-center;
+    padding: 12px;
+}
+
+.pc-toolbar {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    flex-direction: row;
+}

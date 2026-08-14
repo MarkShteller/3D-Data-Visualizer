@@ -1,0 +1,31 @@
+{
+    "name": "PointCloud.Tests.PlayMode",
+    "rootNamespace": "PointCloud.Tests.PlayMode",
+    "references": [
+        "PointCloud.Core",
+        "PointCloud.Formats",
+        "PointCloud.Rendering",
+        "PointCloud.App",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Mathematics",
+        "Unity.PerformanceTesting",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
